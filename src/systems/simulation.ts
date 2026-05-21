@@ -37,47 +37,52 @@ export function updateParticles(runState: RunState, deltaTime: number): void {
 
 export function detectAndFormClusters(runState: RunState): AlphaCluster[] {
   const newClusters: AlphaCluster[] = [];
-  const particles = runState.particles;
-  const used = new Set<number>();
+  const particles = [...runState.particles]; // work on copy
+  const usedIndices = new Set<number>();
 
   for (let i = 0; i < particles.length; i++) {
-    if (used.has(i)) continue;
+    if (usedIndices.has(i)) continue;
 
-    const closeParticles: Particle[] = [particles[i]];
+    const group: Particle[] = [particles[i]];
 
     for (let j = i + 1; j < particles.length; j++) {
-      if (used.has(j)) continue;
+      if (usedIndices.has(j)) continue;
 
       const dx = particles[i].position.x - particles[j].position.x;
       const dy = particles[i].position.y - particles[j].position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist < CLUSTER_FORMATION_DISTANCE) {
-        closeParticles.push(particles[j]);
+        group.push(particles[j]);
       }
     }
 
-    if (closeParticles.length === 4) {
+    // Check if we have exactly 4 particles and they form a valid alpha (2p + 2n)
+    if (group.length >= 4) {
+      // Take first 4 for simplicity in demo
+      const candidate = group.slice(0, 4);
+
       try {
         const cluster = createAlphaCluster({
-          id: Date.now(),
-          particles: closeParticles,
-          center: getCenter(closeParticles),
+          id: Date.now() + i,
+          particles: candidate,
+          center: getCenter(candidate),
         });
 
         newClusters.push(cluster);
-        closeParticles.forEach((_, idx) => {
-          const originalIndex = particles.indexOf(closeParticles[idx]);
-          used.add(originalIndex);
+        // Mark these 4 as used
+        candidate.forEach(p => {
+          const idx = particles.findIndex(pp => pp.id === p.id);
+          if (idx !== -1) usedIndices.add(idx);
         });
       } catch (e) {
-        // Not a valid alpha composition, ignore
+        // Not a valid alpha composition, skip
       }
     }
   }
 
-  // Remove used particles
-  runState.particles = particles.filter((_, index) => !used.has(index));
+  // Remove used particles from state
+  runState.particles = particles.filter((_, index) => !usedIndices.has(index));
   runState.activeClusters.push(...newClusters);
 
   return newClusters;
@@ -96,31 +101,26 @@ export function processClusterPops(runState: RunState): void {
   const toPop: AlphaCluster[] = [];
 
   for (const cluster of runState.activeClusters) {
-    // Simple rule: pop if particles are still close
-    const stillClose = cluster.particleIds.every(id => {
-      const p = runState.particles.find(p => p.id === id);
-      return p !== undefined; // In real version we'd check distances
-    });
-
-    if (!stillClose || Math.random() < 0.3) { // Temporary random popping for demo
+    // Pop with increasing probability over time or randomly for demo
+    if (Math.random() < 0.25) {
       toPop.push(cluster);
     }
   }
 
   for (const cluster of toPop) {
-    // Apply shockwave
+    // Apply shockwave to remaining particles
     runState.particles = applyShockwave(
       runState.particles,
       cluster.center,
-      120,
+      140,
       runState
     );
 
-    // Reward
-    runState.score += 100;
-    runState.chaos = Math.max(0, runState.chaos - 10);
+    // Score and chaos update
+    runState.score += 150;
+    runState.chaos = Math.max(0, runState.chaos - 15);
 
-    // Remove cluster
+    // Remove the cluster
     runState.activeClusters = runState.activeClusters.filter(c => c.id !== cluster.id);
   }
 }
